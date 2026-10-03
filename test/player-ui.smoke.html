@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>player-ui smoke test</title>
+    <style>
+      body { margin: 0; font: 13px monospace; }
+      #container { position: relative; width: 400px; height: 300px; background: #222; }
+    </style>
+  </head>
+  <body>
+    <div id="container"><video id="video"></video></div>
+    <pre id="out"></pre>
+    <script src="../src/player-ui.js"></script>
+    <script>
+      const results = [];
+      const check = (name, pass, detail = '') =>
+        results.push(`${pass ? 'PASS' : 'FAIL'} ${name}${detail ? ' :: ' + detail : ''}`);
+
+      const video = document.getElementById('video');
+      Object.defineProperties(video, {
+        duration: { value: 30, configurable: true },
+        currentTime: { value: 0, writable: true, configurable: true },
+        paused: { value: false, writable: true, configurable: true },
+        ended: { value: false, writable: true, configurable: true },
+      });
+      let playCalls = 0;
+      let pauseCalls = 0;
+      video.play = () => {
+        playCalls += 1;
+        video.paused = false;
+        video.dispatchEvent(new Event('play'));
+        return Promise.resolve();
+      };
+      video.pause = () => {
+        pauseCalls += 1;
+        video.paused = true;
+        video.dispatchEvent(new Event('pause'));
+      };
+
+      const container = document.getElementById('container');
+      window.stopLoopingUi.attach(video);
+
+      const bar = container.querySelector('div');
+      check('bar injected into container', !!bar && bar.parentElement === container);
+      check('bar uses shadow dom', !!(bar && bar.shadowRoot));
+
+      const shadow = bar.shadowRoot;
+      const button = shadow.querySelector('button');
+      const track = shadow.querySelector('.track');
+      const fill = shadow.querySelector('.fill');
+      const time = shadow.querySelector('.time');
+      check('controls present', !!(button && track && fill && time));
+
+      video.currentTime = 15;
+      video.dispatchEvent(new Event('timeupdate'));
+      check('fill tracks progress', parseFloat(fill.style.width) === 50, fill.style.width);
+      check('time shows both stamps', time.textContent === '0:15 / 0:30', time.textContent);
+      check('aria-valuenow set', track.getAttribute('aria-valuenow') === '50');
+      check('playing shows pause glyph', button.getAttribute('aria-label') === 'Pause');
+
+      const press = (target, x, y, type = 'pointerdown') => {
+        const rect = target.getBoundingClientRect();
+        const event = new PointerEvent(type, {
+          bubbles: true,
+          cancelable: true,
+          clientX: rect.left + x,
+          clientY: rect.top + y,
+          pointerId: 1,
+        });
+        document.body.dispatchEvent(event);
+        return event;
+      };
+
+      const buttonRect = button.getBoundingClientRect();
+      press(button, buttonRect.width / 2, buttonRect.height / 2);
+      check('pointerdown on button pauses', pauseCalls === 1);
+      press(button, buttonRect.width / 2, buttonRect.height / 2);
+      check('second press replays', playCalls === 1);
+
+      const trackRect = track.getBoundingClientRect();
+      const at = (fraction) => trackRect.left + trackRect.width * fraction;
+
+      press(track, trackRect.width * 0.25, trackRect.height / 2);
+      check('press seeks to 25%', Math.abs(video.currentTime - 7.5) < 0.01, String(video.currentTime));
+
+      const move = new PointerEvent('pointermove', {
+        bubbles: true,
+        cancelable: true,
+        clientX: at(0.75),
+        clientY: trackRect.top + trackRect.height / 2,
+        pointerId: 1,
+      });
+      document.body.dispatchEvent(move);
+      check('drag continues seeking', Math.abs(video.currentTime - 22.5) < 0.01, String(video.currentTime));
+      check('drag suppressed page default', move.defaultPrevented);
+
+      document.body.dispatchEvent(
+        new PointerEvent('pointerup', { bubbles: true, clientX: at(0.75), clientY: 0, pointerId: 1 })
+      );
+
+      track.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true, cancelable: true }));
+      check('arrow key steps back 5s', Math.abs(video.currentTime - 17.5) < 0.01, String(video.currentTime));
+
+      bar.style.opacity = '0';
+      const hidden = press(track, trackRect.width / 2, trackRect.height / 2);
+      check('hidden bar ignores pointer', !hidden.defaultPrevented && Math.abs(video.currentTime - 17.5) < 0.01);
+      bar.style.opacity = '1';
+
+      const childrenBefore = container.children.length;
+      window.stopLoopingUi.sync([]);
+      check('sync drops bars for missing videos', container.children.length === childrenBefore - 1);
+
+      window.stopLoopingUi.attach(video);
+      check('re-attach after detach', container.querySelectorAll('div').length === 1);
+      window.stopLoopingUi.detach(video);
+      check('detach removes bar', container.querySelectorAll('div').length === 0);
+
+      const report = () => {
+        document.getElementById('out').textContent =
+          results.join('\n') +
+          `\n\n${results.filter((r) => r.startsWith('PASS')).length}/${results.length} passed`;
+      };
+
+      // Re-attach, then check the hold that defends against Instagram resetting
+      // currentTime behind our back.
+      window.stopLoopingUi.attach(video);
+      const liveTrack = container.querySelector('div').shadowRoot.querySelector('.track');
+      const liveRect = liveTrack.getBoundingClientRect();
+      press(liveTrack, liveRect.width * 0.5, liveRect.height / 2);
+      const target = video.currentTime;
+
+      video.currentTime = 0;
+      setTimeout(() => {
+        check(
+          'seek survives an external reset',
+          Math.abs(video.currentTime - target) < 0.01,
+          `${video.currentTime} vs ${target}`
+        );
+        setTimeout(() => {
+          video.currentTime = 0;
+          setTimeout(() => {
+            check('hold gives up after its window', video.currentTime === 0, String(video.currentTime));
+            report();
+          }, 200);
+        }, 400);
+      }, 150);
+    </script>
+  </body>
+</html>

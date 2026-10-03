@@ -2,6 +2,7 @@
   'use strict';
 
   const STORAGE_KEY = 'enabled';
+  const CONTROLS_KEY = 'controls';
   const GUARD_ATTR = 'data-stop-looping';
   const LOOP_ATTR = 'data-stop-looping-loop';
   const SWEEP_INTERVAL = 1000;
@@ -13,6 +14,7 @@
   };
 
   let userEnabled = true;
+  let showControls = true;
   let active = false;
   let replaysBlocked = 0;
   let lastPath = location.pathname;
@@ -21,15 +23,17 @@
   const watched = new Set();
   const observer = new MutationObserver(handleMutations);
 
-  chrome.storage.local.get(STORAGE_KEY).then(
-    (stored) => setUserEnabled(stored[STORAGE_KEY]),
-    () => {}
-  );
+  chrome.storage.local
+    .get([STORAGE_KEY, CONTROLS_KEY])
+    .then((stored) => {
+      setUserEnabled(stored[STORAGE_KEY]);
+      setShowControls(stored[CONTROLS_KEY]);
+    }, () => {});
 
   chrome.storage.onChanged.addListener((changes, areaName) => {
-    if (areaName === 'local' && STORAGE_KEY in changes) {
-      setUserEnabled(changes[STORAGE_KEY].newValue);
-    }
+    if (areaName !== 'local') return;
+    if (STORAGE_KEY in changes) setUserEnabled(changes[STORAGE_KEY].newValue);
+    if (CONTROLS_KEY in changes) setShowControls(changes[CONTROLS_KEY].newValue);
   });
 
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
@@ -55,6 +59,21 @@
     sync();
   }
 
+  function setShowControls(value) {
+    showControls = value !== false;
+    eachGuarded(applyControls);
+  }
+
+  /** Instagram ships no controls of its own; Threads and YouTube draw their own. */
+  function wantsControls() {
+    return showControls && active && location.hostname.endsWith('instagram.com');
+  }
+
+  function applyControls(video) {
+    if (wantsControls()) window.stopLoopingUi.attach(video);
+    else window.stopLoopingUi.detach(video);
+  }
+
   /** YouTube is only in scope for Shorts; every other supported site is full width. */
   function appliesToPage() {
     const host = location.hostname;
@@ -74,6 +93,7 @@
       unblock();
       eachGuarded((video) => {
         video.loop = video.getAttribute(LOOP_ATTR) === 'true';
+        applyControls(video);
       });
       return;
     }
@@ -81,6 +101,7 @@
     watch(document);
     eachGuarded((video) => {
       video.loop = false;
+      applyControls(video);
     });
     sweep();
   }
@@ -94,7 +115,9 @@
     if (!active || document.hidden) return;
 
     findShadowRoots();
-    for (const video of scanRoots('video')) guard(video);
+    const videos = scanRoots('video');
+    for (const video of videos) guard(video);
+    window.stopLoopingUi.sync(videos);
   }
 
   function handleMutations(records) {
@@ -164,8 +187,13 @@
 
   function forget(node) {
     if (!node?.querySelectorAll) return;
-    if (node instanceof HTMLVideoElement) blocked.delete(node);
-    for (const video of node.querySelectorAll('video')) blocked.delete(video);
+    if (node instanceof HTMLVideoElement) forgetVideo(node);
+    for (const video of node.querySelectorAll('video')) forgetVideo(video);
+  }
+
+  function forgetVideo(video) {
+    blocked.delete(video);
+    window.stopLoopingUi.detach(video);
   }
 
   function unblock() {
@@ -177,6 +205,7 @@
     video.setAttribute(GUARD_ATTR, '');
     video.setAttribute(LOOP_ATTR, video.loop ? 'true' : 'false');
     if (active) video.loop = false;
+    applyControls(video);
 
     const play = HTMLMediaElement.prototype.play.bind(video);
 

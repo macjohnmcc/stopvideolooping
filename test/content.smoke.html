@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>content script integration smoke test</title>
+    <style>
+      body { margin: 0; font: 13px monospace; }
+      #container { position: relative; width: 320px; height: 240px; background: #333; }
+    </style>
+  </head>
+  <body>
+    <div id="container"></div>
+    <pre id="out"></pre>
+    <script>
+      // Must exist before the content script runs, and must report nothing enabled.
+      window.chrome = {
+        storage: {
+          local: { get: () => Promise.resolve({}), set: () => Promise.resolve() },
+          onChanged: { addListener: () => {} },
+        },
+        runtime: { onMessage: { addListener: () => {} }, sendMessage: () => Promise.resolve() },
+      };
+      const errors = [];
+      window.addEventListener('error', (event) => errors.push(event.message));
+    </script>
+    <script src="../src/player-ui.js"></script>
+    <script>
+      // The content script decides whether a page is in scope from location, and a
+      // test served from 127.0.0.1 is not instagram.com. The source is loaded and the
+      // two location reads are pointed at a test-supplied host so the real code path
+      // runs, rather than adding a test-only escape hatch to shipped code.
+      const results = [];
+      const check = (name, pass, detail = '') =>
+        results.push(`${pass ? 'PASS' : 'FAIL'} ${name}${detail ? ' :: ' + detail : ''}`);
+
+      const container = document.getElementById('container');
+      const bars = () => [...container.querySelectorAll('div')].filter((node) => node.shadowRoot);
+
+      const report = () => {
+        document.getElementById('out').textContent =
+          results.join('\n') +
+          `\n\n${results.filter((r) => r.startsWith('PASS')).length}/${results.length} passed`;
+      };
+
+      window.__testHost = 'instagram.com';
+      window.__testPath = '/';
+
+      fetch('../src/content.js')
+        .then((response) => response.text())
+        .then((source) => {
+          const patched = source
+            .replaceAll('location.hostname', 'window.__testHost')
+            .replaceAll('location.pathname', 'window.__testPath');
+          new Function(patched)();
+          return wait(150);
+        })
+        .then(() => {
+          const video = document.createElement('video');
+          container.append(video);
+          return wait(150).then(() => video);
+        })
+        .then((video) => {
+          check('runs clean on the target host', errors.length === 0, errors.join(' | '));
+          check('video is guarded', video.getAttribute('data-stop-looping') === '');
+          check('loop attribute is neutralised', video.loop === false, String(video.loop));
+          check('controls are injected', bars().length === 1, String(bars().length));
+
+          video.dispatchEvent(new Event('ended'));
+          return wait(150).then(() => {
+            check('stays paused after ending', video.paused === true);
+            container.removeChild(video);
+            return wait(150);
+          });
+        })
+        .then(() => {
+          check('detaches bars when the video goes away', bars().length === 0, String(bars().length));
+          check('still runs clean', errors.length === 0, errors.join(' | '));
+          report();
+        })
+        .catch((error) => {
+          check('test harness ran', false, String(error));
+          report();
+        });
+
+      function wait(ms) {
+        return new Promise((resolve) => setTimeout(resolve, ms));
+      }
+    </script>
+  </body>
+</html>

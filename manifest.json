@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Stop Video Looping",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Stops Instagram and Threads videos, plus YouTube Shorts, from replaying on repeat.",
   "permissions": ["storage"],
   "host_permissions": [
@@ -32,7 +32,7 @@
         "*://*.threads.com/*",
         "*://*.youtube.com/*"
       ],
-      "js": ["src/content.js"],
+      "js": ["src/player-ui.js", "src/content.js"],
       "run_at": "document_start",
       "all_frames": true
     }

@@ -38,14 +38,71 @@ it has stopped on the current tab.
 Note that a video that already finished will not replay when you scroll back to
 it either — click it to play it again.
 
+## Controls on Instagram
+
+Instagram draws no controls of its own for feed videos, and its progress bar is
+built from internal components that an extension cannot switch on. The popup's
+**Show controls on Instagram** checkbox instead injects a small bar into the
+video's container: a play/pause button, a draggable progress bar, and elapsed /
+total time.
+
+It is Instagram-only on purpose: Threads and YouTube already draw their own
+controls, and two bars would overlap. Details worth knowing:
+
+- the bar lives in a shadow root, so Instagram's stylesheet cannot reach it
+- it appears on hover and while paused, and fades after 2.5 s of playback
+- arrow keys step 5 s when the bar has focus; only one bar shows at a time
+- Instagram's own tap-to-pause overlay still works, since the bar only covers
+  the bottom strip
+- pointer handling runs on the document in the capture phase and hit-tests the
+  bar's own rectangles, so an overlay stacked over the video cannot swallow a drag
+- after a seek the target is held for about a third of a second, because
+  Instagram's own player sometimes snaps `currentTime` straight back
+
+Turn the checkbox off to remove the bars.
+
+## Tests
+
+Two smoke tests run in any Chromium browser and print pass/fail into the page.
+
+`test/player-ui.smoke.html` drives the injected bar against a stubbed video:
+injection, play/pause, tapping and dragging the scrubber, keyboard nudging, the
+fade-out gate, the seek hold, and attach/detach cleanup.
+
+```sh
+"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" \
+  --headless=new --virtual-time-budget=3000 \
+  --dump-dom "file://$PWD/test/player-ui.smoke.html"
+```
+
+`test/content.smoke.html` runs the real `content.js` against stubbed extension
+APIs and checks the whole pipeline: guards land on videos, loop is neutralised,
+bars are injected and cleaned up, and nothing throws. It needs to be served over
+HTTP because it reads the script's source, and it points the page-scope check at
+`instagram.com` rather than adding a test-only hook to shipped code.
+
+```sh
+python3 -m http.server 8731 &
+"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" \
+  --headless=new --virtual-time-budget=6000 \
+  --dump-dom "http://127.0.0.1:8731/test/content.smoke.html"
+kill %1
+```
+
+The virtual time budget lets the timed seek-hold checks finish before the DOM is
+dumped.
+
 ## Files
 
 | Path | Purpose |
 | --- | --- |
 | `manifest.json` | MV3 manifest, content script on Instagram, Threads, YouTube |
 | `src/content.js` | Loop blocking, replay blocking, DOM watching |
+| `src/player-ui.js` | The injected play/pause and progress bar for Instagram |
 | `src/popup.html`, `src/popup.js`, `src/popup.css` | Toolbar popup and toggle |
 | `build.py` | Packages `dist/stopvideolooping-<version>.zip` for the store |
+| `test/player-ui.smoke.html` | Headless smoke test for the injected bar |
+| `test/content.smoke.html` | Headless smoke test for the content script |
 | `make-icons.py` | Regenerates `icons/` (requires Pillow) |
 
 ## Reinstall / edit

@@ -1,7 +1,9 @@
 const STORAGE_KEY = 'enabled';
+const CONTROLS_KEY = 'controls';
 const SUPPORTED = ['instagram.com', 'threads.com', 'youtube.com'];
 
 const toggle = document.getElementById('toggle');
+const showControls = document.getElementById('native-controls');
 const stats = document.getElementById('stats');
 const reload = document.getElementById('reload');
 
@@ -12,6 +14,11 @@ toggle.addEventListener('change', async () => {
   await refresh();
 });
 
+showControls.addEventListener('change', async () => {
+  await chrome.storage.local.set({ [CONTROLS_KEY]: showControls.checked });
+  await refresh();
+});
+
 reload.addEventListener('click', () => {
   if (supportedTabId !== null) chrome.tabs.reload(supportedTabId);
 });
@@ -19,8 +26,9 @@ reload.addEventListener('click', () => {
 refresh();
 
 async function refresh() {
-  const stored = await chrome.storage.local.get(STORAGE_KEY);
+  const stored = await chrome.storage.local.get([STORAGE_KEY, CONTROLS_KEY]);
   toggle.checked = stored[STORAGE_KEY] !== false;
+  showControls.checked = stored[CONTROLS_KEY] !== false;
 
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   supportedTabId = SUPPORTED.some((host) => tab?.url?.includes(host)) ? tab.id : null;
