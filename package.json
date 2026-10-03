@@ -1,0 +1,11 @@
+{
+  "name": "stopvideolooping",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Build tooling for the Stop Video Looping Chrome extension.",
+  "scripts": {
+    "build": "python3 build.py",
+    "icons": "python3 make-icons.py",
+    "clean": "rm -rf dist"
+  }
+}
