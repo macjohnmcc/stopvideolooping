@@ -1,11 +1,11 @@
 const STORAGE_KEY = 'enabled';
-const INSTAGRAM = 'instagram.com';
+const SUPPORTED = ['instagram.com', 'threads.com', 'youtube.com'];
 
 const toggle = document.getElementById('toggle');
 const stats = document.getElementById('stats');
 const reload = document.getElementById('reload');
 
-let instagramTabId = null;
+let supportedTabId = null;
 
 toggle.addEventListener('change', async () => {
   await chrome.storage.local.set({ [STORAGE_KEY]: toggle.checked });
@@ -13,7 +13,7 @@ toggle.addEventListener('change', async () => {
 });
 
 reload.addEventListener('click', () => {
-  if (instagramTabId !== null) chrome.tabs.reload(instagramTabId);
+  if (supportedTabId !== null) chrome.tabs.reload(supportedTabId);
 });
 
 refresh();
@@ -23,20 +23,26 @@ async function refresh() {
   toggle.checked = stored[STORAGE_KEY] !== false;
 
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-  instagramTabId = tab?.url?.includes(INSTAGRAM) ? tab.id : null;
-  reload.hidden = instagramTabId === null;
+  supportedTabId = SUPPORTED.some((host) => tab?.url?.includes(host)) ? tab.id : null;
+  reload.hidden = supportedTabId === null;
 
-  if (instagramTabId === null) {
+  if (supportedTabId === null) {
     stats.textContent = '';
     return;
   }
 
   try {
-    const report = await chrome.tabs.sendMessage(instagramTabId, {
+    const report = await chrome.tabs.sendMessage(supportedTabId, {
       type: 'stop-looping:stats',
     });
     const replays = report.replaysBlocked;
-    stats.textContent = `${replays} ${replays === 1 ? 'replay' : 'replays'} stopped here.`;
+    if (!report.active && report.host.includes('youtube.com')) {
+      stats.textContent = 'YouTube is only handled on Shorts pages.';
+    } else if (report.active) {
+      stats.textContent = `${replays} ${replays === 1 ? 'replay' : 'replays'} stopped here.`;
+    } else {
+      stats.textContent = toggle.checked ? 'Reload the page to start.' : '';
+    }
   } catch {
     stats.textContent = toggle.checked ? 'Reload the page to start.' : '';
   }

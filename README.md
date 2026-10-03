@@ -1,30 +1,39 @@
 # Stop Video Looping
 
-A Chrome extension that stops Instagram videos from replaying on repeat. When a
-video reaches the end it stays on its last frame instead of starting over.
+A Chrome extension that stops videos from replaying on repeat. When a video
+reaches the end it stays on its last frame instead of starting over.
+
+| Site | Scope |
+| --- | --- |
+| instagram.com | every video |
+| threads.com | every video |
+| youtube.com | **Shorts only** (`/shorts`); regular videos are left alone |
 
 ## Install
 
 1. Open `chrome://extensions`
 2. Turn on **Developer mode** (top right)
 3. Click **Load unpacked** and select this folder
-4. Reload any open Instagram tab
+4. Reload any open Instagram, Threads, or YouTube tab
 
 ## How it works
 
-Instagram marks its videos with the `loop` attribute and its own JavaScript
-restarts playback whenever a video comes back into view, so removing the
+These sites mark their videos with the `loop` attribute and restart playback
+from their own JavaScript whenever a video comes back into view, so removing the
 attribute alone is not enough. For every `<video>` on the page the extension:
 
-- clears `loop`, and clears it again if Instagram re-adds it
+- clears `loop`, and clears it again if the site re-adds it
 - pauses playback the moment `ended` fires, and blocks further `play()` calls for
   that video, so an automatic restart has no effect
 - releases the block on your next click, tap, or keypress, so clicking play on a
   video still works normally
 
-New videos are picked up as you scroll, including in Instagram's single-page
-navigation, via a `MutationObserver`. The toolbar popup toggles the extension
-and reports how many replays it has stopped on the current tab.
+Videos are picked up three ways, because all three sites are single-page apps
+that swap their players around: a `MutationObserver` on the page, a once-a-second
+sweep that also reaches into open shadow roots (YouTube can mount its player
+inside one), and a check of the current route, so YouTube only engages on
+`/shorts`. The toolbar popup toggles the extension and reports how many replays
+it has stopped on the current tab.
 
 Note that a video that already finished will not replay when you scroll back to
 it either — click it to play it again.
@@ -33,7 +42,7 @@ it either — click it to play it again.
 
 | Path | Purpose |
 | --- | --- |
-| `manifest.json` | MV3 manifest, content script on `*.instagram.com` |
+| `manifest.json` | MV3 manifest, content script on Instagram, Threads, YouTube |
 | `src/content.js` | Loop blocking, replay blocking, DOM watching |
 | `src/popup.html`, `src/popup.js`, `src/popup.css` | Toolbar popup and toggle |
 | `build.py` | Packages `dist/stopvideolooping-<version>.zip` for the store |
