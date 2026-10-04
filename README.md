@@ -140,6 +140,8 @@ dumped.
 | `test/player-ui.smoke.html` | Headless smoke test for the injected bar |
 | `test/content.smoke.html` | Headless smoke test for the content script |
 | `make-icons.py` | Regenerates `icons/` (requires Pillow) |
+| `make-promo.py` | Regenerates the store promo tiles in `promo/` (requires Pillow) |
+| `promo/*.png` | 440×280 and 1400×560 promo images for the store listing |
 
 ## Reinstall / edit
 

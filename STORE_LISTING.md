@@ -139,6 +139,29 @@ set, in this order, which is the order they appear:
 Screenshots 1 and 2 are the ones that sell it; 3 shows there is nothing to learn.
 Avoid screenshots that show the two-bar situation on a zoomed Instagram post.
 
+## Promo tiles
+
+The listing form also takes two promo images, both of which are generated and
+checked in rather than drawn by hand:
+
+| Slot | File | Spec |
+| --- | --- | --- |
+| Small promo tile | `promo/promo-440x280.png` | 440×280, 24-bit PNG, no alpha |
+| Marquee | `promo/promo-1400x560.png` | 1400×560, 24-bit PNG, no alpha |
+
+Both are full-bleed: the store displays them edge to edge, so there is no
+transparency and nothing rounded off. Chrome may crop the marquee on some
+surfaces, which is why the design keeps its content inside a wide margin.
+
+Regenerate them after changing the wording or the palette:
+
+```sh
+python3 make-promo.py
+```
+
+The generator refuses to write a tile whose text would run past the edge, so a
+longer tagline fails loudly instead of being silently clipped.
+
 ## Privacy practices
 
 Chrome's data-usage questionnaire is mandatory for every listing. This extension
@@ -153,7 +176,33 @@ is honest to answer "no" across the board:
 | Remote code | No, all code ships inside the package |
 | Encryption in transit | Not applicable, nothing is transmitted |
 
-**Why the host permissions** — paste this if a reviewer asks:
+## Permission justifications
+
+**Storage**
+
+```
+Two user settings are stored locally: whether videos should be stopped from
+replaying, and whether the playback bar should be drawn on Instagram. Both are
+on/off values chosen in the popup, and they exist only so those choices survive a
+browser restart. Nothing sensitive or identifying is stored, nothing is
+transmitted, and clearing the extension's data restores both defaults.
+```
+
+**Host permissions — instagram.com, threads.com, youtube.com**
+
+```
+The single purpose of this extension is to stop videos replaying, which requires
+access to the video elements on the pages where it works. On these sites it
+clears the loop attribute, pauses playback the moment a video ends, and blocks
+the site's own play calls for that video so an automatic restart has no effect. A
+click, tap or keypress releases the block, so pressing play still works normally.
+On YouTube the extension only engages on /shorts routes and leaves regular videos
+untouched. It reads no other page content - no text, images, cookies or form
+data - and nothing is sent off the device. Access is limited to these three sites
+and their subdomains.
+```
+
+**Why the host permissions** — shorter version, if the field wants one sentence:
 
 ```
 The extension has to find <video> elements on instagram.com, threads.com and
