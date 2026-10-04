@@ -34,7 +34,8 @@
         results.push(`${pass ? 'PASS' : 'FAIL'} ${name}${detail ? ' :: ' + detail : ''}`);
 
       const container = document.getElementById('container');
-      const bars = () => [...container.querySelectorAll('div')].filter((node) => node.shadowRoot);
+      // Bars live in the body, positioned from each video's own rectangle.
+      const bars = () => [...document.body.querySelectorAll('div')].filter((node) => node.shadowRoot);
 
       const report = () => {
         document.getElementById('out').textContent =
@@ -74,6 +75,20 @@
         })
         .then(() => {
           check('detaches bars when the video goes away', bars().length === 0, String(bars().length));
+          // The sweep attaches bars itself now, so it must not attach one for a host that
+          // draws its own controls. Untick the popup's checkbox and the bars have to stay
+          // away on Instagram too.
+          window.__testHost = 'threads.net';
+          container.append(document.createElement('video'));
+          return wait(1300);
+        })
+        .then(() => {
+          check('no bar on a host that draws its own controls',
+            bars().length === 0, String(bars().length));
+          window.__testHost = 'instagram.com';
+          return wait(1300);
+        })
+        .then(() => {
           check('still runs clean', errors.length === 0, errors.join(' | '));
           report();
         })

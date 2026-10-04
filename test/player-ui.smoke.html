@@ -5,7 +5,14 @@
     <title>player-ui smoke test</title>
     <style>
       body { margin: 0; font: 13px monospace; }
-      #container { position: relative; width: 400px; height: 300px; background: #222; }
+      #container {
+        position: relative;
+        width: 400px;
+        height: 300px;
+        background: #222;
+        overflow: hidden;
+        transform: translateZ(0);
+      }
     </style>
   </head>
   <body>
@@ -39,17 +46,43 @@
       };
 
       const container = document.getElementById('container');
+      // Mutable so the test can simulate Instagram expanding a video into a
+      // full-screen view, which restyles the video without moving it in the DOM.
+      // Sized to the viewport so the geometry expectations hold at any window height.
+      const feedBottom = innerHeight - 40;
+      const feedRect = () => ({ left: 0, top: 0, right: 400, bottom: feedBottom, width: 400, height: feedBottom });
+      let rect = feedRect();
+      video.getBoundingClientRect = () => rect;
+
+      // The page has its own divs, so ours are identified by the shadow root.
+      const bars = () => [...document.body.querySelectorAll('div')].filter((node) => node.shadowRoot);
+
       window.stopLoopingUi.attach(video);
 
-      const bar = container.querySelector('div');
-      check('bar injected into container', !!bar && bar.parentElement === container);
+      const bar = bars()[0];
+      check('bar is attached to the body', !!bar && bar.parentElement === document.body);
+      check('bar is fixed, not parented to Instagram', bar.style.position === 'fixed');
       check('bar uses shadow dom', !!(bar && bar.shadowRoot));
+      check('Instagram container is left untouched', container.getAttribute('style') === null,
+        container.getAttribute('style'));
 
       const shadow = bar.shadowRoot;
+      const row = shadow.querySelector('.row');
       const button = shadow.querySelector('button');
       const track = shadow.querySelector('.track');
       const fill = shadow.querySelector('.fill');
       const time = shadow.querySelector('.time');
+
+      // Instagram's own mute button lives in the video's bottom left corner, so the bar
+      // must not sit on top of it.
+      check('the bar only takes clicks on its own controls',
+        getComputedStyle(row).pointerEvents === 'none' &&
+        getComputedStyle(button).pointerEvents === 'auto' &&
+        getComputedStyle(track).pointerEvents === 'auto',
+        `row=${getComputedStyle(row).pointerEvents} button=${getComputedStyle(button).pointerEvents} track=${getComputedStyle(track).pointerEvents}`);
+      check("Instagram's bottom left corner is left clear",
+        parseFloat(getComputedStyle(row).paddingLeft) >= 40,
+        getComputedStyle(row).paddingLeft);
       check('controls present', !!(button && track && fill && time));
 
       video.currentTime = 15;
@@ -59,13 +92,28 @@
       check('aria-valuenow set', track.getAttribute('aria-valuenow') === '50');
       check('playing shows pause glyph', button.getAttribute('aria-label') === 'Pause');
 
+      check('bar matches the video box', bar.style.left === '0px' && bar.style.width === '400px',
+        `${bar.style.left} / ${bar.style.width}`);
+      check('bar sits on the video bottom', bar.style.bottom === '40px', bar.style.bottom);
+
+      // Instagram expanding a post: the video is restyled to fill the viewport while
+      // its container stays put, which used to strand the bar off screen.
+      rect = { left: 0, top: 0, right: innerWidth, bottom: innerHeight, width: innerWidth, height: innerHeight };
+      check('expanded rect is on screen', rect.width > 0 && rect.height > 0);
+      window.stopLoopingUi.sync([video]);
+      check('bar follows an expanded video', bar.style.width === `${innerWidth}px` && bar.style.bottom === '0px',
+        `${bar.style.width} / ${bar.style.bottom}`);
+
+      rect = feedRect();
+      window.stopLoopingUi.sync([video]);
+
       const press = (target, x, y, type = 'pointerdown') => {
-        const rect = target.getBoundingClientRect();
+        const box = target.getBoundingClientRect();
         const event = new PointerEvent(type, {
           bubbles: true,
           cancelable: true,
-          clientX: rect.left + x,
-          clientY: rect.top + y,
+          clientX: box.left + x,
+          clientY: box.top + y,
           pointerId: 1,
         });
         document.body.dispatchEvent(event);
@@ -79,15 +127,13 @@
       check('second press replays', playCalls === 1);
 
       const trackRect = track.getBoundingClientRect();
-      const at = (fraction) => trackRect.left + trackRect.width * fraction;
-
       press(track, trackRect.width * 0.25, trackRect.height / 2);
       check('press seeks to 25%', Math.abs(video.currentTime - 7.5) < 0.01, String(video.currentTime));
 
       const move = new PointerEvent('pointermove', {
         bubbles: true,
         cancelable: true,
-        clientX: at(0.75),
+        clientX: trackRect.left + trackRect.width * 0.75,
         clientY: trackRect.top + trackRect.height / 2,
         pointerId: 1,
       });
@@ -96,25 +142,59 @@
       check('drag suppressed page default', move.defaultPrevented);
 
       document.body.dispatchEvent(
-        new PointerEvent('pointerup', { bubbles: true, clientX: at(0.75), clientY: 0, pointerId: 1 })
+        new PointerEvent('pointerup', {
+          bubbles: true,
+          clientX: trackRect.left + trackRect.width * 0.75,
+          clientY: 0,
+          pointerId: 1,
+        })
       );
 
       track.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true, cancelable: true }));
       check('arrow key steps back 5s', Math.abs(video.currentTime - 17.5) < 0.01, String(video.currentTime));
 
-      bar.style.opacity = '0';
-      const hidden = press(track, trackRect.width / 2, trackRect.height / 2);
-      check('hidden bar ignores pointer', !hidden.defaultPrevented && Math.abs(video.currentTime - 17.5) < 0.01);
-      bar.style.opacity = '1';
+      // Instagram raises its own overlay above the video on hover, so the bar reacts
+      // to the pointer's position rather than to events on the video.
+      const hover = (x, y) =>
+        document.body.dispatchEvent(
+          new PointerEvent('pointermove', {
+            bubbles: true,
+            cancelable: true,
+            clientX: x,
+            clientY: y,
+            pointerId: 2,
+          })
+        );
 
-      const childrenBefore = container.children.length;
+      video.paused = false;
+      hover(200, 100);
+      check('hovering the video shows the bar', bar.style.opacity === '1', bar.style.opacity);
+
+      hover(trackRect.left + trackRect.width / 2, trackRect.top + trackRect.height / 2);
+      check('moving onto the bar keeps it visible', bar.style.opacity === '1', bar.style.opacity);
+
+      video.paused = true;
+      hover(4, innerHeight - 10);
+      check('a paused bar survives the pointer leaving', bar.style.opacity === '1', bar.style.opacity);
+
+      video.paused = false;
+      hover(200, 100);
+      hover(4, innerHeight - 10);
+      check('a playing bar hides when the pointer leaving', bar.style.opacity === '0', bar.style.opacity);
+
+      // The bar fades while playing, but a click on where it sits must still work
+      // rather than falling through to Instagram.
+      press(track, trackRect.width * 0.5, trackRect.height / 2);
+      check('a faded bar still takes clicks', Math.abs(video.currentTime - 15) < 0.01, String(video.currentTime));
+
+      const barsBefore = bars().length;
       window.stopLoopingUi.sync([]);
-      check('sync drops bars for missing videos', container.children.length === childrenBefore - 1);
+      check('sync drops bars for missing videos', bars().length === barsBefore - 1);
 
       window.stopLoopingUi.attach(video);
-      check('re-attach after detach', container.querySelectorAll('div').length === 1);
+      check('re-attach after detach', bars().length === barsBefore);
       window.stopLoopingUi.detach(video);
-      check('detach removes bar', container.querySelectorAll('div').length === 0);
+      check('detach removes bar', bars().length === barsBefore - 1);
 
       const report = () => {
         document.getElementById('out').textContent =
@@ -125,7 +205,7 @@
       // Re-attach, then check the hold that defends against Instagram resetting
       // currentTime behind our back.
       window.stopLoopingUi.attach(video);
-      const liveTrack = container.querySelector('div').shadowRoot.querySelector('.track');
+      const liveTrack = bars()[0].shadowRoot.querySelector('.track');
       const liveRect = liveTrack.getBoundingClientRect();
       press(liveTrack, liveRect.width * 0.5, liveRect.height / 2);
       const target = video.currentTime;
@@ -141,8 +221,128 @@
           video.currentTime = 0;
           setTimeout(() => {
             check('hold gives up after its window', video.currentTime === 0, String(video.currentTime));
-            report();
-          }, 200);
+          // The expanded player covers the pointer while the feed sits behind it, so the
+          // bar must follow the video the user is actually looking at.
+          const feedBar = bar;
+          const expandedVideo = document.createElement('video');
+          document.body.append(expandedVideo);
+          Object.defineProperties(expandedVideo, {
+            duration: { value: 60, configurable: true },
+            currentTime: { value: 0, writable: true, configurable: true },
+            paused: { value: false, writable: true, configurable: true },
+            ended: { value: false, writable: true, configurable: true },
+          });
+          expandedVideo.getBoundingClientRect = () => ({
+            left: 0,
+            top: 0,
+            right: innerWidth,
+            bottom: innerHeight,
+            width: innerWidth,
+            height: innerHeight,
+          });
+          window.stopLoopingUi.attach(expandedVideo);
+          const expandedBar = bars()[bars().length - 1];
+          feedBar.style.opacity = '0';
+          expandedBar.style.opacity = '0';
+          hover(200, 100);
+          check('hover picks the expanded video, not the feed behind it',
+            expandedBar.style.opacity === '1' && feedBar.style.opacity === '0',
+            `expanded=${expandedBar.style.opacity} feed=${feedBar.style.opacity}`);
+
+            // The feed keeps playing behind the expanded player, and Instagram pauses
+            // and resumes those videos as the modal opens. Their events must not light up
+            // a second bar underneath the one being looked at.
+            const liveFeedBar = bars()[0];
+            liveFeedBar.style.opacity = '0';
+            video.dispatchEvent(new Event('pause'));
+            check('a background video event cannot reveal its bar',
+              liveFeedBar.style.opacity === '0', liveFeedBar.style.opacity);
+            expandedVideo.dispatchEvent(new Event('play'));
+            window.stopLoopingUi.sync([video, expandedVideo]);
+            check('only one bar is ever visible',
+              expandedBar.style.opacity === '1' && liveFeedBar.style.opacity === '0',
+              `expanded=${expandedBar.style.opacity} feed=${liveFeedBar.style.opacity}`);
+
+            // Re-attaching a video while the pointer never moves must still bring its
+            // bar back, otherwise it stays invisible until the mouse is lifted.
+            window.stopLoopingUi.detach(video);
+            window.stopLoopingUi.attach(video);
+            hover(4, innerHeight - 10);
+            hover(200, 100);
+            const revivedBar = bars()[0];
+            check('a bar returns after a re-attach under a still pointer',
+              revivedBar.style.opacity === '1', revivedBar.style.opacity);
+            setTimeout(() => {
+              check('a hovered bar never fades while playing', expandedBar.style.opacity === '1',
+                expandedBar.style.opacity);
+
+              // Instagram can throw the player element away and mount a new one, which is
+              // what its audio toggle does to the expanded player. The bar has to follow
+              // without waiting for the pointer to move again.
+              hover(500, 200);
+              const swapped = document.createElement('video');
+              document.body.append(swapped);
+              Object.defineProperties(swapped, {
+                duration: { value: 30, configurable: true },
+                currentTime: { value: 5, writable: true, configurable: true },
+                paused: { value: false, writable: true, configurable: true },
+                ended: { value: false, writable: true, configurable: true },
+              });
+              swapped.getBoundingClientRect = () => feedRect();
+              expandedVideo.remove();
+              window.stopLoopingUi.sync([video, swapped]);
+              const swappedBar = bars()[bars().length - 1];
+              check('the bar follows a swapped player element',
+                !!swappedBar && swappedBar.style.opacity === '1',
+                swappedBar && swappedBar.style.opacity);
+              check('the bar behind it stays hidden',
+                liveFeedBar.style.opacity === '0', liveFeedBar.style.opacity);
+
+              // A paused video can be the bigger box, which is the case when Instagram
+              // expands a post and leaves the feed's video behind it.
+              const bigPaused = document.createElement('video');
+              const smallPlaying = document.createElement('video');
+              document.body.append(bigPaused, smallPlaying);
+              const stub = (target, paused, box) => {
+                Object.defineProperties(target, {
+                  duration: { value: 30, configurable: true },
+                  currentTime: { value: 5, writable: true, configurable: true },
+                  paused: { value: paused, writable: true, configurable: true },
+                  ended: { value: false, writable: true, configurable: true },
+                });
+                target.getBoundingClientRect = () => box;
+              };
+              stub(bigPaused, true, { left: 0, top: 0, right: 600, bottom: innerHeight - 40, width: 600, height: innerHeight - 40 });
+              stub(smallPlaying, false, { left: 0, top: 0, right: 400, bottom: innerHeight - 40, width: 400, height: innerHeight - 40 });
+              const before = bars().length;
+              window.stopLoopingUi.sync([video, swapped, bigPaused, smallPlaying]);
+              check('the sweep attaches bars for videos it has never seen',
+                bars().length === before + 2, `${bars().length} vs ${before + 2}`);
+              hover(200, Math.floor(innerHeight / 4));
+              const pausedBar = bars()[bars().length - 2];
+              const playingBar = bars()[bars().length - 1];
+              check('a playing video wins over a bigger paused one behind it',
+                playingBar.style.opacity === '1' && pausedBar.style.opacity === '0',
+                `playing=${playingBar.style.opacity} paused=${pausedBar.style.opacity}`);
+
+              // A post that opens in a same origin frame runs a second copy of this script,
+              // and both copies share a slot on the top window to agree on who draws.
+              window.owner = {};
+              hover(200, Math.floor(innerHeight / 4));
+              check('another frame can keep this frame off the screen',
+                playingBar.style.opacity === '0', playingBar.style.opacity);
+              // A video's own play and pause events never go through the pointer, so the
+              // frame that lost the slot has to ignore those as well.
+              smallPlaying.dispatchEvent(new Event('pause'));
+              check('a frame that lost the slot ignores its own video events',
+                playingBar.style.opacity === '0', playingBar.style.opacity);
+              window.owner = null;
+              hover(200, Math.floor(innerHeight / 4));
+              check('the bar comes back once the frame is allowed one again',
+                playingBar.style.opacity === '1', playingBar.style.opacity);
+              report();
+            }, 3000);
+          }, 400);
         }, 400);
       }, 150);
     </script>

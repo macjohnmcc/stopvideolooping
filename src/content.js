@@ -116,8 +116,17 @@
 
     findShadowRoots();
     const videos = scanRoots('video');
-    for (const video of videos) guard(video);
-    window.stopLoopingUi.sync(videos);
+    // One element Instagram has half torn down must not stop the sweep, or the bars
+    // for every other video stop being kept up to date.
+    for (const video of videos) {
+      try {
+        guard(video);
+      } catch {}
+    }
+    // Only Instagram draws our bar, and only while the popup's checkbox is on. Handing
+    // the sweep an empty list is how the bars get taken away again: sync drops bars for
+    // videos it is not given, so it must never be given one that is out of scope.
+    window.stopLoopingUi.sync(wantsControls() ? videos : []);
   }
 
   function handleMutations(records) {

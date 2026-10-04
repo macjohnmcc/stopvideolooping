@@ -42,18 +42,48 @@ it either — click it to play it again.
 
 Instagram draws no controls of its own for feed videos, and its progress bar is
 built from internal components that an extension cannot switch on. The popup's
-**Show controls on Instagram** checkbox instead injects a small bar into the
-video's container: a play/pause button, a draggable progress bar, and elapsed /
-total time.
+**Show controls on Instagram** checkbox instead draws a small bar over the
+video: a play/pause button, a draggable progress bar, and elapsed / total time.
 
 It is Instagram-only on purpose: Threads and YouTube already draw their own
 controls, and two bars would overlap. Details worth knowing:
 
+- Threads draws a control bar for both the video behind an opened post and the zoomed
+  one, so two slightly offset bars show up when a post is opened. Both belong to the
+  site; nothing is drawn there by this extension.
+
 - the bar lives in a shadow root, so Instagram's stylesheet cannot reach it
-- it appears on hover and while paused, and fades after 2.5 s of playback
+- it is fixed to the page and positioned from the video's own rectangle, because
+  expanding a post restyles the video to fill the viewport while leaving its
+  container where it was — anything positioned by that container ends up off
+  screen, which is why it follows a click-to-expand but not a page refresh
+- it appears whenever the pointer is over a video and while paused, and fades
+  2.5 s after the pointer leaves a playing video; hover is resolved from pointer
+  coordinates, because Instagram raises its own overlay above the video on hover,
+  which makes the video stop emitting pointer events
+- where several videos sit under the pointer at once — the expanded player plus the
+  feed behind it — the bar belongs to the largest, which is the one you are looking
+  at, rather than whichever was attached first
+- if Instagram swaps the player element, as its audio toggle does to the expanded
+  post, the bar is handed to the new element instead of waiting for the pointer to
+  move again; the sweep also attaches bars itself, so a player it mounts late still
+  gets one
+- when several videos overlap, a playing one wins over a bigger paused one, because
+  Instagram pauses whatever sits behind the expanded post
+- one bar per page rather than one per document: a post opened inside a same origin
+  frame runs a second copy of this script, and the copies agree on the top window about
+  which one may draw. Instagram does not frame its player today, so this is a safeguard
+  rather than a fix for anything seen so far
+- only one bar is ever visible: Instagram leaves the feed's videos mounted and
+  playing behind the expanded player and pauses them as the modal opens, so a
+  background video's own play and pause events must not light up a second bar
+  underneath the one being looked at
 - arrow keys step 5 s when the bar has focus; only one bar shows at a time
 - Instagram's own tap-to-pause overlay still works, since the bar only covers
   the bottom strip
+- only the play/pause button and the scrubber accept clicks; the rest of the bar is
+  transparent to the pointer, and it starts to the right of Instagram's own bottom
+  left mute button, so that button keeps working with the extension enabled
 - pointer handling runs on the document in the capture phase and hit-tests the
   bar's own rectangles, so an overlay stacked over the video cannot swallow a drag
 - after a seek the target is held for about a third of a second, because
@@ -66,8 +96,12 @@ Turn the checkbox off to remove the bars.
 Two smoke tests run in any Chromium browser and print pass/fail into the page.
 
 `test/player-ui.smoke.html` drives the injected bar against a stubbed video:
-injection, play/pause, tapping and dragging the scrubber, keyboard nudging, the
-fade-out gate, the seek hold, and attach/detach cleanup.
+injection, geometry tracking as the video moves and resizes, hover show/hide with
+overlapping videos, single visible bar, click-through bar, swapped player element,
+late mounted player, play/pause, tapping
+and dragging the scrubber, keyboard nudging, the fade-out gate, the seek hold,
+and attach/detach cleanup. It also asserts that Instagram's own container is
+never mutated.
 
 ```sh
 "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" \
