@@ -135,6 +135,8 @@ dumped.
 | `src/player-ui.js` | The injected play/pause and progress bar for Instagram |
 | `src/popup.html`, `src/popup.js`, `src/popup.css` | Toolbar popup and toggle |
 | `build.py` | Packages `dist/stopvideolooping-<version>.zip` for the store |
+| `STORE_LISTING.md` | Chrome Web Store listing copy, privacy answers, upload checklist |
+| `PRIVACY.md` | Privacy policy text for the store listing |
 | `test/player-ui.smoke.html` | Headless smoke test for the injected bar |
 | `test/content.smoke.html` | Headless smoke test for the content script |
 | `make-icons.py` | Regenerates `icons/` (requires Pillow) |
